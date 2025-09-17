@@ -1,99 +1,64 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { PDFDocumentProxy } from 'pdfjs-dist';
-	let { url } = $props();
+	import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+	import PdfPage from './components/PdfPage.svelte';
 
-	let num = $state();
+	interface PageData {
+		pageNumber: number;
+		pageProxy: PDFPageProxy;
+	}
+
+	let { url }: { url: string } = $props();
+
 	let pdfDoc: PDFDocumentProxy | null = null;
-	let pageNum = 1;
-	let pageRendering = false;
-	let pageNumPending: number | null = null;
 	let scale = 0.8;
 	let canvas_parent: HTMLDivElement | null = $state(null);
 
-	let canvas: HTMLCanvasElement;
-	let renderPage: Function;
+	let pages: PageData[] = $state([]);
+	let isLoading = $state(true);
+	let error: string | null = $state(null);
 
 	onMount(async () => {
-		const pdfjsLib = await import('pdfjs-dist');
+		try {
+			const pdfjsLib = await import('pdfjs-dist');
 
-		pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs';
+			pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs';
 
-		let parentWidth = canvas_parent!.clientWidth;
-		// let ctx: CanvasRenderingContext2D | null = canvas.getContext('2d');
+			pdfDoc = await pdfjsLib.getDocument(url).promise;
 
-		renderPage = (num: number) => {
-      if (!pdfDoc) {
-				return;
-			}
-			pageRendering = true;
-			// Using promise to fetch the page
-			pdfDoc.getPage(num).then(function (page) {
-				const unscaledViewport = page.getViewport({ scale: 1 });
-				const scale = parentWidth / unscaledViewport.width;
-				var viewport = page.getViewport({ scale: scale });
-				canvas.height = viewport.height;
-				canvas.width = viewport.width;
+			if (!pdfDoc) throw new Error();
+			const loadedDoc = pdfDoc;
+			const numPages = loadedDoc.numPages;
 
-				// Render PDF page into canvas context
-				var renderContext = {
-					canvas: canvas,
-					viewport: viewport
-				};
-				var renderTask = page.render(renderContext);
+			const pagePromises = Array.from({ length: numPages }, (_, i) => loadedDoc.getPage(i + 1));
+			const pageProxies = await Promise.all(pagePromises);
 
-				// Wait for rendering to finish
-				renderTask.promise.then(function () {
-					pageRendering = false;
-					if (pageNumPending !== null) {
-						// New page rendering is pending
-						renderPage(pageNumPending);
-						pageNumPending = null;
-					}
-				});
-			});
-		};
+			pages = pageProxies.map((proxy, index) => ({
+				pageNumber: index + 1,
+				pageProxy: proxy
+			}));
+		} catch (e) {
+			console.error('Failed to load and process PDF:', e);
+			error = 'Could not load the PDF file.';
+		} finally {
+			isLoading = false;
+		}
 
-		pdfjsLib.getDocument(url).promise.then(function (pdfDoc_) {
-			pdfDoc = pdfDoc_;
-			renderPage(pageNum);
-		});
 	});
-
-	function queueRenderPage(num: number) {
-		if (pageRendering) {
-			pageNumPending = num;
-		} else {
-			renderPage(num);
-		}
-	}
-
-	function onPrevPage() {
-		if (pageNum <= 1) {
-			return;
-		}
-		pageNum--;
-		queueRenderPage(pageNum);
-	}
-
-	function onNextPage() {
-		if (pageNum >= pdfDoc!.numPages) {
-			return;
-		}
-		pageNum++;
-		queueRenderPage(pageNum);
-	}
 </script>
 
 <div class="parent-div" bind:this={canvas_parent}>
-	<div>
-		<button id="prev" onclick={onPrevPage}>Previous</button>
-		<button id="next" onclick={onNextPage}>Next</button>
-		&nbsp; &nbsp;
-		<span>Page: <span id="page_num">{num}</span> / <span id="page_count"></span></span>
-	</div>
-
-	<canvas width="" bind:this={canvas} id="the-canvas"></canvas>
+	{#if isLoading}
+		<p>Loding document...</p>
+	{:else if error}
+		<p>Error</p>
+	{:else}
+		{#each pages as page (page.pageNumber)}
+			<div class="page-wrapper">
+				<PdfPage pageProxy={page.pageProxy} page_no={page.pageNumber} />
+			</div>
+		{/each}
+	{/if}
 </div>
 
 <style>
