@@ -35,16 +35,14 @@
 		Math.max(0, allPages.findIndex((p) => p.offsetTop + p.height >= scrollTop) - OVERSCAN)
 	);
 
-	const endIndex = $derived(
-		Math.min(
-			allPages.length,
-			allPages.findIndex((p) => p.offsetTop >= scrollTop + viewportHeight) + OVERSCAN
-		)
-	);
+	const endIndex = $derived(() => {
+		const foundIndex = allPages.findIndex((p) => p.offsetTop >= scrollTop + viewportHeight);
 
-	const visiblePages = $derived(
-		allPages.slice(startIndex, endIndex === -1 ? allPages.length : endIndex)
-	);
+		const boundaryIndex = foundIndex === -1 ? allPages.length : foundIndex;
+		return Math.min(allPages.length, boundaryIndex + OVERSCAN);
+	});
+
+	const visiblePages = $derived(allPages.slice(startIndex, endIndex()));
 
 	onMount(async () => {
 		try {
@@ -91,7 +89,12 @@
 	});
 </script>
 
-<div class="viewport" bind:clientHeight={viewportHeight} bind:clientWidth={viewportWidth}>
+<div
+	class="viewport"
+	bind:clientHeight={viewportHeight}
+	bind:clientWidth={viewportWidth}
+	onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
+>
 	{#if isLoading}
 		<p>Loading document...</p>
 	{:else if error}
